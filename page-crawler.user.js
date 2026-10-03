@@ -78,7 +78,7 @@
   let route = [], routeCursor = 0, navState = 'planning';
   let navigationPoint = null;
   let destination = { x: width * .48, y: height * .45 };
-  const body = { x: width * .48, y: height * .45, z: 18, angle: -.5, distance: 0, velocity: 0, angularVelocity: 0, turnSign: 1 };
+  const body = { x: width * .48, y: height * .45, z: 18, coil: 0, angle: -.5, distance: 0, velocity: 0, angularVelocity: 0, turnSign: 1 };
   const pointer = { x: 0, y: 0, active: false };
   let pageScrollX = scrollX, pageScrollY = scrollY;
   const nestedScrolls = new WeakMap();
@@ -91,7 +91,8 @@
   // A visual hunt, independent of normal walking. The browser cursor and page
   // input are untouched. Flight has a fixed launch target, so prey can escape.
   const hunt = { stage: 'idle', time: 0, range: 125, armed: true, cooldownUntil: 0,
-    target: null, lastTarget: null, origin: null, feet: [], jumps: 0, catches: 0, misses: 0, caught: false };
+    target: null, lastTarget: null, origin: null, windup: null, windupDuration: .18, retreat: 22,
+    feet: [], jumps: 0, catches: 0, misses: 0, caught: false };
   const smoothstep = t => t * t * (3 - 2 * t);
   let turnDemand = 0, blockedTurn = false, avoidanceStops = 0;
   const effects = new Map();
@@ -111,7 +112,7 @@
       body.y = clamp(body.y, 20, Math.max(20, height - 20));
     }
     destination = { x: body.x, y: body.y }; nextTarget = 0;
-    hunt.stage = 'idle'; hunt.time = 0; body.z = skeleton.bodyHeight;
+    hunt.stage = 'idle'; hunt.time = 0; body.z = skeleton.bodyHeight; body.coil = 0;
     resetLegs();
     initialized = true;
   }
@@ -129,7 +130,12 @@
     const radius = restRadius(i) + ahead * .14;
     return world(Math.cos(angle) * radius, side * Math.sin(angle) * radius, heading);
   }
-  function hipFor(i) { return world([15, 4, -4, -12][i % 4], (i < 4 ? -1 : 1) * [7, 10, 10, 7][i % 4]); }
+  function hipFor(i, pose = body) {
+    const forward = [15, 4, -4, -12][i % 4] * (1 - .12 * pose.coil);
+    const sideways = (i < 4 ? -1 : 1) * [7, 10, 10, 7][i % 4] * (1 - .08 * pose.coil);
+    return { x: pose.x + Math.cos(pose.angle) * forward - Math.sin(pose.angle) * sideways,
+      y: pose.y + Math.sin(pose.angle) * forward + Math.cos(pose.angle) * sideways };
+  }
   function footAngle(index, point) {
     const x = point.x - body.x, y = point.y - body.y, side = index < 4 ? -1 : 1;
     return Math.atan2((-x * Math.sin(body.angle) + y * Math.cos(body.angle)) * side,
@@ -169,6 +175,26 @@
     return config.hunt && config.follow && pointer.active && pointer.x >= 0 && pointer.x <= width && pointer.y >= 0 && pointer.y <= height;
   }
   function huntStage(stage) { hunt.stage = stage; hunt.time = 0; }
+  function coilPose(amount, retreat) {
+    return { x: hunt.windup.x - Math.cos(body.angle) * retreat * amount,
+      y: hunt.windup.y - Math.sin(body.angle) * retreat * amount,
+      z: skeleton.bodyHeight - 8 * amount, coil: amount, angle: body.angle };
+  }
+  function prepareWindup() {
+    hunt.windup = { x: body.x, y: body.y };
+    // Keep feet planted throughout the loading stroke. Shorten the backward
+    // shift if the current stance cannot support it with fixed bone lengths.
+    hunt.retreat = 22;
+    const allowed = retreat => [.25, .5, .75, 1].every(amount => {
+      const pose = coilPose(amount, retreat);
+      return supportMargin(-1, pose) >= 8 && legs.every((leg, i) => {
+        const hip = hipFor(i, pose), scale = skeleton.pairScales[i % 4];
+        const reach = Math.hypot(leg.x - hip.x, leg.y - hip.y, pose.z);
+        return reach >= 94 * scale && reach <= lengthsFor(i).reduce((a, b) => a + b) - 8 * scale;
+      });
+    });
+    while (hunt.retreat > 0 && !allowed(hunt.retreat)) hunt.retreat = Math.max(0, hunt.retreat - 2);
+  }
   function updateHunt(dt) {
     const ready = huntReady(), distance = Math.hypot(pointer.x - body.x, pointer.y - body.y);
     if (!hunt.armed && ready && elapsed >= hunt.cooldownUntil && hunt.lastTarget &&
@@ -187,12 +213,17 @@
       if (!ready || distance > hunt.range + 20) { huntStage('idle'); return false; }
       if (legs.every(leg => leg.state === 'planted')) {
         hunt.target = { x: pointer.x, y: pointer.y };
+        prepareWindup();
         huntStage('crouch');
       }
     } else if (hunt.stage === 'crouch') {
-      const t = clamp(hunt.time / .10, 0, 1);
-      body.z = skeleton.bodyHeight - 8 * smoothstep(t);
-      if (!ready || distance > hunt.range + 20 || Math.hypot(pointer.x - hunt.target.x, pointer.y - hunt.target.y) > 35) {
+      const t = clamp(hunt.time / hunt.windupDuration, 0, 1);
+      const pose = coilPose(smoothstep(t), hunt.retreat), oldX = body.x, oldY = body.y;
+      Object.assign(body, pose); body.distance += Math.hypot(body.x - oldX, body.y - oldY);
+      // Range is measured before the intentional backward shift, so loading
+      // near the range boundary does not cancel its own attack.
+      if (!ready || Math.hypot(pointer.x - hunt.windup.x, pointer.y - hunt.windup.y) > hunt.range + 20 ||
+          Math.hypot(pointer.x - hunt.target.x, pointer.y - hunt.target.y) > 35) {
         hunt.caught = false; huntStage('recover');
       } else if (t === 1) {
         // Lock the prey position at launch; no homing or snapping mid-air.
@@ -212,6 +243,8 @@
       body.y = hunt.origin.y + (hunt.landing.y - hunt.origin.y) * t;
       body.distance += Math.hypot(body.x - oldX, body.y - oldY);
       body.z = skeleton.bodyHeight - 8 * (1 - t) + 4 * hunt.height * t * (1 - t);
+      // Release the compressed stance in the first half of the fast flight.
+      body.coil = 1 - smoothstep(clamp(t / .45, 0, 1));
       for (let i = 0; i < 8; i++) {
         const leg = legs[i], rest = idealFoot(i), blend = smoothstep(t), tuck = 1 - .30 * arc;
         const offsetX = hunt.feet[i].x * (1 - blend) + (rest.x - body.x) * blend;
@@ -265,6 +298,7 @@
     } else if (hunt.stage === 'recover') {
       const t = clamp(hunt.time / .20, 0, 1);
       body.z += (skeleton.bodyHeight - body.z) * Math.min(1, dt * 25);
+      body.coil *= 1 - Math.min(1, dt * 25);
       for (let i = 0; i < 8; i++) {
         const leg = legs[i];
         if (leg.state !== 'grasp') continue;
@@ -275,7 +309,7 @@
         for (let i = 0; i < 8; i++) if (legs[i].state === 'grasp') {
           Object.assign(legs[i], hunt.feet[i], { lift: 0, state: 'planted', lastStep: elapsed });
         }
-        body.z = skeleton.bodyHeight; huntStage('idle');
+        body.z = skeleton.bodyHeight; body.coil = 0; huntStage('idle');
         arrivedAt = elapsed; lastTakeoff = elapsed;
       }
     }
@@ -595,12 +629,13 @@
     ctx.scale(bodyScale, bodyScale);
     ctx.shadowColor = '#0008'; ctx.shadowBlur = 5;
     ctx.fillStyle = '#101918'; ctx.strokeStyle = config.neon ? '#76a0ff' : '#85b99c'; ctx.lineWidth = 1.6;
-    ctx.beginPath(); ctx.ellipse(-21, 0, 18, 8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const abdomenX = -21 + 6 * body.coil;
+    ctx.beginPath(); ctx.ellipse(abdomenX, 0, 18 * (1 - .08 * body.coil), 8 * (1 + .06 * body.coil), 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.ellipse(5, 0, 13, 10, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
     joint(12, -3, 2, config.neon ? '#fa62da' : '#b5e1bd'); joint(12, 3, 2, config.neon ? '#fa62da' : '#b5e1bd');
     const bite = hunt.stage === 'feeding' ? Math.sin(hunt.time * 30) * 3 : 0;
     line(17, -4, 24, -7 + bite, legColor, 1.3); line(17, 4, 24, 7 - bite, legColor, 1.3);
-    line(-30, 0, -13, 0, '#73ffbf66', 1); ctx.restore();
+    line(abdomenX - 9, 0, abdomenX + 8, 0, '#73ffbf66', 1); ctx.restore();
   }
   function tick(time) {
     frame = 0;
@@ -620,7 +655,7 @@
       }
     }
     if (updateHunt(dt)) {
-      const labels = { gather: '准备扑跳 · 收稳支撑', crouch: '锁定鼠标 · 蓄力', airborne: '扑向鼠标', landing: hunt.caught ? '落地 · 抓住目标' : '扑空 · 收稳', feeding: '捕食 · 前腿抓握', recover: '恢复站姿' };
+      const labels = { gather: '准备扑跳 · 收稳支撑', crouch: '向后蜷身 · 蓄力', airborne: '向前扑向鼠标', landing: hunt.caught ? '落地 · 抓住目标' : '扑空 · 收稳', feeding: '捕食 · 前腿抓握', recover: '恢复站姿' };
       $('#navigation').textContent = labels[hunt.stage] || '收稳站姿';
       for (const [element] of effects) if (!element.isConnected) release(element);
       draw(dt); frame = requestAnimationFrame(tick); return;
@@ -732,7 +767,7 @@
   function scrollCreature(dx, dy) {
     if (!dx && !dy) return;
     body.x -= dx; body.y -= dy; destination.x -= dx; destination.y -= dy;
-    for (const point of [hunt.target, hunt.lastTarget, hunt.origin, hunt.landing]) if (point) { point.x -= dx; point.y -= dy; }
+    for (const point of [hunt.target, hunt.lastTarget, hunt.origin, hunt.landing, hunt.windup]) if (point) { point.x -= dx; point.y -= dy; }
     if (['landing', 'feeding', 'recover'].includes(hunt.stage)) for (const point of hunt.feet) { point.x -= dx; point.y -= dy; }
     for (const leg of legs) {
       leg.x -= dx; leg.y -= dy; leg.from.x -= dx; leg.from.y -= dy;
@@ -796,7 +831,7 @@
   // Read-only diagnostics used by the local demo and browser checks.
   host.crawlerStatus = () => ({ running, paused, enabled: config.enabled, excluded, steps, hits,
     effects: effects.size, particles: particles.length, x: body.x, y: body.y,
-    bodyHeight: body.z, hunting: config.hunt, hunt: { stage: hunt.stage, time: hunt.time, range: hunt.range,
+    bodyHeight: body.z, bodyCoil: body.coil, hunting: config.hunt, hunt: { stage: hunt.stage, time: hunt.time, range: hunt.range,
       armed: hunt.armed, cooldownRemaining: Math.max(0, hunt.cooldownUntil - elapsed),
       jumps: hunt.jumps, catches: hunt.catches, misses: hunt.misses, target: hunt.target && { ...hunt.target }, caught: hunt.caught },
     worldX: body.x + scrollX, worldY: body.y + scrollY, follow: config.follow, following: config.follow && pointer.active,
@@ -809,7 +844,7 @@
       segments: leg.joints.length - 1, boneLengths: lengthsFor(index), joints: leg.joints.map(point => ({ ...point })),
       joints3D: leg.joints3D.map(point => ({ ...point })) })),
     landings: landingHistory.map(landing => ({ ...landing })),
-    finite: [body.x, body.y, body.z, body.angle, ...legs.flatMap(leg => [leg.x, leg.y,
+    finite: [body.x, body.y, body.z, body.coil, body.angle, ...legs.flatMap(leg => [leg.x, leg.y,
       ...leg.joints.flatMap(point => [point.x, point.y]), ...leg.joints3D.flatMap(point => [point.x, point.y, point.z])])].every(Number.isFinite) });
   resize(); synchronize();
 })();

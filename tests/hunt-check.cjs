@@ -33,16 +33,30 @@ async function scene(browser, speed = 1, viewport = { width: 1280, height: 850 }
         const begin = state(), target = { x: begin.x + Math.cos(begin.angle) * 280, y: begin.y + Math.sin(begin.angle) * 280 };
         aim(target.x, target.y);
         let maxHeight = 0, maxBoneError = 0, airborneFrames = 0, badSupportFrames = 0, earlyJump = false, launchDistance = null;
-        let settled = null, lastStage = 'idle', launchFrame = null, flightSeconds = null, maximumAirSpeed = 0; const stages = [];
+        let settled = null, lastStage = 'idle', launchFrame = null, flightSeconds = null, maximumAirSpeed = 0;
+        let windup = null, entryDistance = null, backwardStroke = 0, footSlip = 0, coilAtLaunch = 0, airborneCoil = 0;
+        const stages = [];
         for (let frame = 0; frame < 2500; frame++) {
           const before = state(); step(); const s = state();
           if (!s.finite) throw new Error('nonfinite hunt pose');
+          if (before.hunt.stage !== 'crouch' && s.hunt.stage === 'crouch') {
+            windup = { x: s.x, y: s.y, angle: s.angle };
+            entryDistance = Math.hypot(s.x - target.x, s.y - target.y);
+          }
+          if (before.hunt.stage === 'crouch') {
+            backwardStroke = Math.max(backwardStroke, (windup.x - s.x) * Math.cos(windup.angle) + (windup.y - s.y) * Math.sin(windup.angle));
+            for (let i = 0; i < 8; i++) {
+              footSlip = Math.max(footSlip, Math.hypot(s.legs[i].x - before.legs[i].x, s.legs[i].y - before.legs[i].y));
+              if (before.legs[i].lift !== 0) throw new Error('windup foot left ground');
+            }
+          }
           if (s.hunt.stage !== lastStage) { stages.push(s.hunt.stage); lastStage = s.hunt.stage; }
-          if (before.hunt.stage !== 'airborne' && s.hunt.stage === 'airborne') launchFrame = frame;
+          if (before.hunt.stage !== 'airborne' && s.hunt.stage === 'airborne') { launchFrame = frame; coilAtLaunch = s.bodyCoil; }
+          if (s.hunt.stage === 'airborne' && s.hunt.time > 0) airborneCoil = s.bodyCoil;
           if (before.hunt.stage === 'airborne') maximumAirSpeed = Math.max(maximumAirSpeed, Math.hypot(s.x - before.x, s.y - before.y) * 60);
           if (before.hunt.stage === 'airborne' && s.hunt.stage === 'landing') flightSeconds = (frame - launchFrame) / 60;
           if (!before.hunt.jumps && s.hunt.jumps) launchDistance = Math.hypot(before.x - target.x, before.y - target.y);
-          if (s.hunt.jumps && launchDistance > s.hunt.range + 1) earlyJump = true;
+          if (s.hunt.jumps && entryDistance > s.hunt.range + 1) earlyJump = true;
           maxHeight = Math.max(maxHeight, s.bodyHeight);
           if (s.hunt.stage === 'airborne' && s.bodyHeight > 30) {
             airborneFrames++;
@@ -60,13 +74,16 @@ async function scene(browser, speed = 1, viewport = { width: 1280, height: 850 }
         aim(target.x + 2, target.y + 1); for (let frame = 0; frame < 120; frame++) step();
         const jitter = state();
         return { speed: GM_getValue('page-crawler-config').speed, stages, maxHeight, maxBoneError, airborneFrames,
-          badSupportFrames, earlyJump, launchDistance, flightSeconds, maximumAirSpeed, displacement: settled.distance,
+          badSupportFrames, earlyJump, entryDistance, launchDistance, backwardStroke, footSlip, coilAtLaunch, airborneCoil,
+          flightSeconds, maximumAirSpeed, displacement: settled.distance,
           finalDistance: Math.hypot(settled.x - target.x, settled.y - target.y), jumps: jitter.hunt.jumps, catches: jitter.hunt.catches,
           idleSteps: resting.steps - settled.steps, jitterSteps: jitter.steps - resting.steps,
           idleMovement: Math.hypot(resting.x - settled.x, resting.y - settled.y), ground: resting.legs.every(leg => leg.grounded && leg.lift === 0) };
       });
       assert.deepEqual(result.stages.slice(0, 7), ['gather', 'crouch', 'airborne', 'landing', 'feeding', 'recover', 'idle']);
       assert(!result.earlyJump && result.launchDistance > 70, 'walk into hunting range before launching');
+      assert(result.backwardStroke >= 10 && result.backwardStroke <= 22.001, 'visible backward loading before forward pounce');
+      assert(result.footSlip < .001 && result.coilAtLaunch === 1 && result.airborneCoil === 0, 'planted windup feet, compressed body, then rapid release');
       assert(result.maxHeight > 42 && result.airborneFrames > 1, 'short height arc with genuinely airborne feet');
       const huntSpeed = Math.max(.5, Math.min(1.6, speed));
       assert(result.flightSeconds >= .11 / huntSpeed && result.flightSeconds <= .17 / huntSpeed + 1 / 60, 'short flight duration');
@@ -120,20 +137,43 @@ async function scene(browser, speed = 1, viewport = { width: 1280, height: 850 }
     assert((await state(carried)).finite);
     results.push({ scene: 'pause and actual scroll during flight', scrollDelta: 180, flightTime: scroll.hunt.time }); await carried.close();
 
+    const loading = await scene(browser);
+    await loading.evaluate(() => {
+      const state = () => document.getElementById('page-crawler-overlay-v1').crawlerStatus();
+      const s = state(); aim(s.x + Math.cos(s.angle) * 125, s.y + Math.sin(s.angle) * 125);
+      for (let f = 0; f < 100; f++) { step(); if (state().hunt.stage === 'crouch' && state().hunt.time >= .1) break; }
+      document.dispatchEvent(new CustomEvent('pagecrawler:command', { detail: 'pause' }));
+    });
+    const loaded = await state(loading);
+    assert.equal(loaded.hunt.stage, 'crouch'); assert(loaded.bodyCoil > .5);
+    await loading.evaluate(() => { for (let f = 0; f < 30; f++) step(); });
+    assert.deepEqual(await state(loading), loaded, 'pause freezes backward windup');
+    await loading.evaluate(() => scrollTo(0, 100));
+    await loading.waitForFunction(() => scrollY === 100 && document.getElementById('page-crawler-overlay-v1').crawlerStatus().y < 300, null, { polling: 20 });
+    const shifted = await state(loading);
+    assert(Math.abs(shifted.worldY - loaded.worldY) < .001 && shifted.bodyCoil === loaded.bodyCoil);
+    await loading.evaluate(() => { document.dispatchEvent(new CustomEvent('pagecrawler:command', { detail: 'pause' })); step(); step(); });
+    const resumed = await state(loading);
+    assert(Math.hypot(resumed.x - shifted.x, resumed.y - shifted.y) < 5, 'windup origin scrolls too; no body teleport on resume');
+    assert.equal(resumed.hunt.jumps, 0, 'cursor escaping during windup cancels launch');
+    results.push({ scene: 'paused backward windup, scroll and cancellation', bodyCoil: loaded.bodyCoil, resumeMovement: Math.hypot(resumed.x - shifted.x, resumed.y - shifted.y) });
+    await loading.close();
+
     const controls = await scene(browser, 1, { width: 390, height: 844 });
     const toggles = await controls.evaluate(() => {
       const host = document.getElementById('page-crawler-overlay-v1'), state = host.crawlerStatus;
       const change = (id, checked) => { const el = host.shadowRoot.getElementById(id); el.checked = checked; el.dispatchEvent(new Event('change')); };
       const s = state(); aim(s.x + Math.cos(s.angle) * 90, s.y + Math.sin(s.angle) * 90);
-      for (let f = 0; f < 50 && state().hunt.stage !== 'crouch'; f++) step();
+      for (let f = 0; f < 50; f++) { step(); if (state().hunt.stage === 'crouch' && state().bodyCoil > .5) break; }
       change('hunt', false); for (let f = 0; f < 45; f++) step(); const cancelled = state();
       change('hunt', true); for (let f = 0; f < 100 && state().hunt.stage !== 'airborne'; f++) step();
       const launched = state(); change('follow', false);
       for (let f = 0; f < 60; f++) step(); const landed = state();
-      return { cancelledJumps: cancelled.hunt.jumps, cancelledHeight: cancelled.bodyHeight, launched: launched.hunt.stage,
+      return { cancelledJumps: cancelled.hunt.jumps, cancelledHeight: cancelled.bodyHeight, cancelledCoil: cancelled.bodyCoil, launched: launched.hunt.stage,
         catches: landed.hunt.catches, misses: landed.hunt.misses, finite: landed.finite, stage: landed.hunt.stage, following: landed.following };
     });
     assert.equal(toggles.cancelledJumps, 0); assert.equal(toggles.cancelledHeight, 18);
+    assert.equal(toggles.cancelledCoil, 0, 'cancelled windup restores uncompressed body');
     assert.equal(toggles.launched, 'airborne'); assert.equal(toggles.catches, 0); assert.equal(toggles.misses, 1);
     assert(toggles.finite && !toggles.following && toggles.stage === 'idle');
     results.push({ scene: 'narrow screen, cancel crouch and disable follow during flight', ...toggles }); await controls.close();

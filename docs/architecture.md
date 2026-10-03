@@ -53,6 +53,8 @@ flowchart LR
 
 捕食过程中 `hunt.feet` 在腾空阶段保存相对身体的偏移，落地后保存页面中的绝对位置。处理滚动时必须区分这两种表示，否则会重复扣除滚动位移。
 
+`hunt.windup` 保存蓄力前的页面位置；`prepareWindup` 在脚尖不滑动的条件下验证可后移距离，`coilPose` 给出压低和收身姿态。`body.coil` 同时控制髋部与腹部，腾空前半段释放。页面滚动也必须平移 windup，否则暂停蓄力后恢复会跳回旧位置。
+
 ## 后续修改的位置
 
 改外观从 `draw` 开始；改站姿从 `restAngles`、`restRadius`、`skeleton` 开始；改行走从 `chooseFoothold` 和 `updateLegs` 开始；改扑击从 `updateHunt` 开始。每次只调整一种行为，再跑相关的实际浏览器检查。
