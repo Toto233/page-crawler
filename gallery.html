@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Spider Playground · 照片与视频</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#101312;color:#d7e0da;font:16px/1.7 system-ui,sans-serif}main{max-width:1140px;margin:auto;padding:40px 28px 80px}a{color:#a5d4b4}nav{display:flex;gap:24px;flex-wrap:wrap;font-size:13px}h1{font-size:36px;font-weight:500;letter-spacing:-.035em;margin:30px 0 8px}h2{font-size:23px;font-weight:500;margin:42px 0 18px}p{color:#a8b8ad}figure{margin:0}figcaption{padding:12px 0 22px;color:#a8b8ad;font-size:13px}img,video{display:block;width:100%;height:auto;background:#f3f3ee;border:1px solid #3f5144}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}.mobile{max-height:600px;object-fit:contain;background:#101312}footer{margin-top:40px;border-top:1px solid #3f5144;padding-top:18px;font-size:13px;color:#92a99a}@media(max-width:700px){main{padding:25px 18px 60px}.grid{grid-template-columns:1fr}h1{font-size:30px}}
+  </style>
+</head>
+<body><main>
+  <nav><a href="./index.html">← 返回动作试验场</a><a href="./docs/gallery.md">素材说明</a><a href="./docs/learning.md">动作学习笔记</a></nav>
+  <h1>动作照片与正常速度回放</h1>
+  <p>截图与视频均来自实际浏览器运行。快速扑击、目标逃脱、转向和最终站姿可以分别观察。</p>
+  <h2>快速扑击 · v1.0.0</h2>
+  <video controls preload="metadata" poster="./assets/images/preview-hunt-airborne.png" aria-label="正常速度捕食回放"><source src="./assets/videos/hunt.mp4" type="video/mp4">请下载 <a href="./assets/videos/hunt.mp4">捕食视频</a> 播放。</video>
+  <p>成功捕食 → 鼠标逃开后的扑空 → 继续追赶 → 再次捕食 → 静止站姿。</p>
+  <div class="grid">
+    <figure><img src="./assets/images/preview-hunt-airborne.png" alt="蜘蛛腾空时脚尖离地、腿向内收"><figcaption>腾空：固定长度腿链收拢，三维高度改变阴影与投影。</figcaption></figure>
+    <figure><img src="./assets/images/preview-hunt-feeding.png" alt="蜘蛛落地后用前腿抓握捕食"><figcaption>捕食：前腿抓握，其他脚支撑身体。</figcaption></figure>
+    <figure><img src="./assets/images/preview-hunt.png" alt="捕食结束后蜘蛛保持站姿"><figcaption>结束：鼠标静止时保持站姿，不反复起跳。</figcaption></figure>
+    <figure><img src="./assets/images/preview-motion.png" alt="蜘蛛的稳定站姿与弓形长腿"><figcaption>行走站姿：当前 v1.0.0 核心，关闭捕食。</figcaption></figure>
+  </div>
+  <h2>桌面与窄屏</h2>
+  <div class="grid">
+    <figure><img src="./assets/images/preview-desktop.png" alt="桌面网页中蜘蛛踩踏内容和控制面板"><figcaption>桌面：可恢复网页效果与完整控制面板。</figcaption></figure>
+    <figure><img class="mobile" src="./assets/images/preview-mobile.png" alt="窄屏演示页和蜘蛛控制面板"><figcaption>窄屏：可直接使用的面板与页面布局。</figcaption></figure>
+  </div>
+  <h2>行走、转向与停止</h2>
+  <video controls preload="metadata" poster="./assets/images/preview-motion.png" aria-label="正常速度行走回放"><source src="./assets/videos/walk.mp4" type="video/mp4">请下载 <a href="./assets/videos/walk.mp4">行走视频</a> 播放。</video>
+  <p>当前 v1.0.0 正常速度行走录像，录制时关闭捕食；使用项目录制工具可重新生成。</p>
+  <footer>论文参考图与作者署名见 <a href="./docs/research.md">论文与参考资料</a>。照片、视频再生成步骤见 <a href="./docs/testing.md">测试与录制</a>。</footer>
+</main></body></html>

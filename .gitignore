@@ -1,0 +1,8 @@
+node_modules/
+dist/
+artifacts/
+release-manifest.json
+*.webm
+*.log
+.DS_Store
+Thumbs.db

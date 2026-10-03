@@ -1,0 +1,24 @@
+{
+  "name": "page-crawler",
+  "version": "1.0.0",
+  "private": true,
+  "description": "网页长腿蜘蛛：连续三维腿、鼠标追随、快速扑跳捕食与可恢复 DOM 接触效果",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node scripts/serve.cjs",
+    "dev": "node scripts/serve.cjs",
+    "test": "node scripts/run-checks.cjs",
+    "test:hunt": "node tests/hunt-check.cjs",
+    "test:legs": "node tests/articulation-check.cjs",
+    "test:collision": "node tests/collision-check.cjs",
+    "test:project": "node scripts/project-check.cjs",
+    "browser:install": "playwright install chromium",
+    "record:hunt": "node scripts/record-hunt.cjs",
+    "record:walk": "node scripts/record-walk.cjs",
+    "export:video": "node scripts/export-video.cjs",
+    "media:sync": "node scripts/sync-media.cjs",
+    "package": "node scripts/package.cjs"
+  },
+  "devDependencies": { "playwright": "1.62.1" }
+}

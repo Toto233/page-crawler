@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Spider Playground — 蜘蛛动作试验场</title>
+  <style>
+    *{box-sizing:border-box}html{background:#101312;color:#d7e0da}body{margin:0;font:16px/1.85 system-ui,sans-serif}
+    main{max-width:1030px;margin:0 auto;padding:56px 36px 160px}a{color:#95b6e8;text-decoration:none;border-bottom:1px solid #95b6e855}a:hover{color:#c3dbff}
+    .mast{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #48554b;padding-bottom:15px;font:11px monospace;letter-spacing:.13em;color:#95a59a}
+    h1{font-size:clamp(34px,5vw,64px);font-weight:500;line-height:1.15;letter-spacing:-.04em;margin:36px 0 18px}h1 em{font-family:Georgia,serif;color:#a5d4b4;font-weight:400}
+    .intro{max-width:690px;color:#a8b8ad;font-size:18px}.bar{display:flex;gap:10px;flex-wrap:wrap;margin:26px 0 40px}.bar a,.bar button{font:12px system-ui;color:#b8d6c3;padding:9px 15px;border:1px solid #4e6355;border-radius:3px;background:transparent;cursor:pointer}
+    .columns{display:grid;grid-template-columns:1.25fr 1fr;gap:50px}h2{font:22px Georgia,serif;font-weight:normal;color:#d2dfd6;border-bottom:1px solid #37473b;padding-bottom:9px;margin:32px 0 14px}p{margin:13px 0}li{padding:5px 0}ul{padding-left:22px}
+    .tag{display:inline;padding:2px 6px;background:#243b2b;border:1px solid #4a6551;color:#b2d7bb;font:13px monospace}.tile{padding:19px 22px;border:1px solid #3f5144;margin:16px 0;background:#18221c}.tile h3{font-size:16px;font-weight:500;margin:0 0 6px}.tile p{font-size:14px;color:#a3b6a7;margin:0}
+    blockquote{border-left:2px solid #88b698;margin:22px 0;padding-left:20px;color:#b7c9bd;font-family:Georgia,serif;font-style:italic}code{font:13px monospace;color:#ddaf86}small{color:#92a99a}label{display:block;margin-top:10px}input,button{font:inherit}input{background:#1b271f;border:1px solid #4f6958;color:#d7e0da;padding:8px;width:100%}#form-result{color:#a7ddbc;min-height:20px}footer{border-top:1px solid #36463b;margin-top:55px;padding-top:20px;font:11px monospace;color:#8c9e91}
+    html.light{background:#f2f4ed;color:#253c2b}.light h1 em{color:#4e7659}.light .intro,.light small{color:#546a59}.light .mast{color:#556b5c;border-color:#b8c7b6}.light h2{color:#344f3c;border-color:#b8c7b6}.light a{color:#385b94}.light .bar a,.light .bar button{color:#3d6248;border-color:#8ca18d}.light .tile{background:#e5eade;border-color:#b5c5b2}.light .tile p{color:#516554}.light .tag{background:#edf4e4;color:#456440;border-color:#9cb492}.light blockquote{color:#526d58}.light code{color:#805939}.light footer{color:#617765;border-color:#bac7b6}.light input{background:#f7faf2;color:#253c2b}.light #form-result{color:#476d50}
+    @media(max-width:650px){main{padding:25px 22px 300px}.columns{grid-template-columns:1fr;gap:0}.mast{font-size:9px}.intro{font-size:16px}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="mast"><span>FIELD NOTES / 001</span><span>DOM × LOCOMOTION</span></div>
+  <h1>让网页成为<br>一片<em>会下沉的地面。</em></h1>
+  <p class="intro">移动鼠标，这只长腿蜘蛛会朝光标走来。进入捕食距离后，它会压低身体、收腿扑跳，落到光标附近抓握捕食；起跳后移开鼠标，它会扑空再追赶。滚动时，它与页面内容一起移动。</p>
+  <div class="bar" data-crawler-ignore><a href="./page-crawler.user.js">下载油猴脚本 ↗</a><a href="./gallery.html">照片与视频 ↗</a><a href="./docs/learning.md">动作学习笔记 ↗</a><button id="reset-demo">恢复网页</button><button id="new-content">追加一段内容</button><button id="theme">切换浅色</button></div>
+  <div class="columns">
+    <article>
+      <h2>01 / 一步落下，文字松动</h2>
+      <p>身体朝目标前进，脚才交错迈步。整条腿从身体连接处到脚尖连贯弯曲，支撑脚固定在地面；四段骨骼保持长度，<a href="#mechanics">投影随弯折改变</a>。到达目标后收稳支撑，再保持站姿。</p>
+      <p>它会遇到 <span class="tag">span</span>，踩过 <a href="#references">可点击的链接</a>，再穿过普通的段落。被踩中的内容会留下彩色轮廓，有些字词像碎片一样飘落。</p>
+      <blockquote>“The page is no longer a surface.<br>It is a place to walk.”</blockquote>
+      <h2 id="mechanics">02 / 接触试验</h2>
+      <ul>
+        <li><a href="#references">Eight legs, planted feet, moving joints.</a> 每一步都有一个新的支撑点。</li>
+        <li>段落出现 <span class="tag">translate + rotate + squash</span> 的瞬间形变。</li>
+        <li>小块文字 <a href="#references">Neon fragments</a> 从页面浮起，再向下坠落。</li>
+        <li>整张页面都是地面；空白区域可正常通过，接触文字和容器才产生形变。</li>
+        <li>恢复会撤销爬行者施加的动画，页面原本的样式仍然保留。</li>
+      </ul>
+      <p>比较两种接触效果：<span class="tag">自动回弹</span> 适合一边浏览一边玩；<span class="tag">保留塌陷</span> 会逐渐留下歪斜的段落，直到按下恢复。</p>
+      <p>前两对腿朝前伸，第三对偏侧方，后腿朝后撑。转身时提前在新方向放脚，近端和远端一起弯曲。接近光标后先蓄力，腾空时收腿，落地后前腿向内抓握；鼠标不动时只捕食一次。关闭“接近鼠标时扑跳捕食”，可以单独观察行走。</p>
+    </article>
+    <aside>
+      <h2>03 / 小块地形</h2>
+      <div class="tile"><h3>文字与容器</h3><p>这是一张普通 div 卡片。边框、背景和里面的文本一起受到脚尖压力，发生下沉和倾斜。</p></div>
+      <div class="tile"><h3>选定目标，再沿途前进</h3><p>移动鼠标，它会朝光标走来，可以穿过页面空白。关闭“跟随鼠标”后，它会选定一个页面目标，走到后再寻找下一个。</p></div>
+      <div class="tile"><h3>完整的撤销</h3><p>右下角的恢复按钮会清除所有踩踏效果。Alt + Shift + R 也能立即恢复。</p></div>
+      <h2>04 / 页面照常使用</h2>
+      <form data-crawler-ignore><label>输入一段文字<input id="test-input" placeholder="这里可以正常输入"></label><button type="submit">确认输入</button><p id="form-result"></p></form>
+      <small>控件和可编辑内容不会成为踩踏目标。链接仍然可以点击。</small>
+    </aside>
+  </div>
+  <section id="references"><h2>05 / Further reading</h2>
+    <p><a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> · 把这个小实验带到其他网站。脚本无需加载外部库。</p>
+    <p><a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Animations_API" target="_blank" rel="noopener">Web Animations API</a> · 用浏览器自带的动画改变元素的视觉状态。</p>
+    <p>Soft ground / wandering creature / temporary traces / reversible motion.</p>
+  </section>
+  <footer>PAGE CRAWLER · LOCAL PLAYGROUND · 2026</footer>
+</main>
+<script src="./page-crawler.user.js"></script>
+<script>
+  document.querySelector('#reset-demo').onclick = () => document.dispatchEvent(new CustomEvent('pagecrawler:command', {detail:'restore'}));
+  document.querySelector('#new-content').onclick = () => {const p=document.createElement('p');p.textContent='新添加的段落：脚踩到这些内容时也会产生接触效果。无需刷新页面，继续观察蜘蛛的下一步。';document.querySelector('article').append(p)};
+  let light=false;document.querySelector('#theme').onclick = (event) => {light=!light;document.documentElement.classList.toggle('light',light);event.target.textContent=light?'切换深色':'切换浅色'};
+  document.querySelector('form').onsubmit = (event) => {event.preventDefault();document.querySelector('#form-result').textContent='已收到：'+document.querySelector('#test-input').value};
+</script>
+</body>
+</html>
