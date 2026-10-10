@@ -34,7 +34,7 @@ for (const file of ['README.md', ...fs.readdirSync(path.join(root, 'docs')).filt
     await page.getByRole('button', { name: '暂停', exact: true }).click();
     await page.screenshot({ path: path.join(root, 'assets/images/project-demo.png') });
     await page.getByRole('link', { name: '照片与视频 ↗', exact: true }).click();
-    await page.waitForFunction(() => [...document.images].length === 6 && [...document.images].every(image => image.complete && image.naturalWidth > 0));
+    await page.waitForFunction(() => [...document.images].length === 9 && [...document.images].every(image => image.complete && image.naturalWidth > 0));
     report.galleryImages = await page.locator('img').count();
     report.galleryVideos = await page.locator('video').count();
     assert.equal(report.galleryVideos, 2);

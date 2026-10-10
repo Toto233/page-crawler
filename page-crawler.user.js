@@ -19,15 +19,18 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const random = (a, b) => a + Math.random() * (b - a);
   const palette = ['#61ffc4', '#fa62da', '#76a0ff', '#ff886f', '#adff73'];
+  const cyberPalette = ['#65e8ff', '#e75bff', '#8989ff', '#a8f4ff', '#bc7dff'];
   const forbidden = 'input,textarea,select,button,[contenteditable]:not([contenteditable="false"]),[role="textbox"],video,audio,iframe,canvas,svg,[data-crawler-ignore]';
   const hasGM = typeof GM_getValue === 'function' && typeof GM_setValue === 'function';
-  let config = { speed: 1, strength: 1, mode: 'recover', neon: true, enabled: true, follow: true, hunt: true };
+  let config = { speed: 1, strength: 1, mode: 'recover', appearance: null, neon: true, enabled: true, follow: true, hunt: true };
   if (hasGM) {
     try { config = { ...config, ...GM_getValue('page-crawler-config', {}) }; } catch (_) { /* defaults */ }
   }
   config.speed = clamp(Number(config.speed) || 1, .3, 2.5);
   config.strength = clamp(Number(config.strength) || 1, .3, 2);
   config.mode = config.mode === 'collapse' ? 'collapse' : 'recover';
+  config.appearance = ['cyber', 'ghost', 'marbled'].includes(config.appearance) ? config.appearance : (config.neon ? 'cyber' : 'ghost');
+  config.neon = config.appearance === 'cyber';
   let excluded = false;
   if (hasGM) {
     try { excluded = GM_getValue('page-crawler-excluded-hosts', []).includes(location.hostname); } catch (_) { /* defaults */ }
@@ -39,7 +42,7 @@
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `
     <style>
-      :host{color-scheme:dark}*{box-sizing:border-box}canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+      :host{color-scheme:dark}*{box-sizing:border-box}canvas,svg.spider{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}svg.spider{overflow:visible}
       .dock{position:absolute;right:18px;bottom:18px;pointer-events:auto;color:#e7eee9;background:#141a18f5;border:1px solid #45524a;border-radius:14px;box-shadow:0 8px 35px #0003;font:12px/1.5 system-ui,sans-serif;width:276px;padding:14px;user-select:none}
       header{display:flex;align-items:center;gap:9px;margin-bottom:11px}header b{font-size:13px;letter-spacing:.04em}.dot{width:7px;height:7px;border-radius:50%;background:#79efb4;box-shadow:0 0 9px #79efb455}header small{margin-left:auto;color:#8c9a91;font:10px monospace}
       button,select{font:inherit;color:inherit;background:#242e28;border:1px solid #435147;border-radius:6px;padding:6px 9px;cursor:pointer}button:hover{border-color:#a0c3ad}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #79efb4;outline-offset:2px}
@@ -48,14 +51,15 @@
       @media(max-width:500px){.dock{right:10px;bottom:10px;width:252px}.tab{right:10px;bottom:10px}}
     </style>
     <canvas aria-hidden="true"></canvas>
+    <svg class="spider" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" hidden></svg>
     <section class="dock" aria-label="网页爬行者控制面板">
       <header><i class="dot"></i><b>PAGE CRAWLER</b><small>快速扑击 / v1.0.0</small><button id="fold" title="收起面板" aria-label="收起面板">−</button></header>
       <label><span>爬行速度</span><input id="speed" type="range" min="0.3" max="2.5" step="0.1"><output id="speedValue"></output></label>
       <label><span>踩踏力度</span><input id="strength" type="range" min="0.3" max="2" step="0.1"><output id="strengthValue"></output></label>
-      <label><span>接触效果</span><select id="mode"><option value="recover">踩塌后自动回弹</option><option value="collapse">保留塌陷，手动恢复</option></select></label>
+      <label><span>接触效果</span><select id="mode" aria-label="接触效果"><option value="recover">踩塌后自动回弹</option><option value="collapse">保留塌陷，手动恢复</option></select></label>
+      <label><span>蜘蛛外观</span><select id="appearance" aria-label="蜘蛛外观"><option value="cyber">赛博蜘蛛</option><option value="ghost">普通幽灵蛛</option><option value="marbled">斑腹幽灵蛛</option></select></label>
       <label><input id="follow" type="checkbox">跟随鼠标（关闭后自主选目标）</label>
       <label><input id="hunt" type="checkbox">接近鼠标时扑跳捕食</label>
-      <label><input id="neon" type="checkbox">霓虹关节与文字碎片</label>
       <div class="actions"><button id="pause">暂停</button><button id="restore">恢复网页</button><button id="close">关闭</button></div>
       <p class="hint" id="navigation">正在寻找路线</p>
       <p class="hint">Alt + Shift：C 开关 · R 恢复 · P 暂停</p>
@@ -66,8 +70,14 @@
   const canvas = $('canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) { host.remove(); return; }
+  const ghost = createGhostRenderer();
   let width = innerWidth, height = innerHeight, dpr = 1;
   let frame = 0, lastTime = 0, running = false, destroyed = false, paused = false;
+  let sleeping = false, wakeTimer = 0;
+  let poseRevision = 0, solvedRevision = -1, lastPaint = -Infinity, paintDebt = 0;
+  let renderInterval = 1000 / 30, averageWork = 0;
+  const svgValues = new WeakMap();
+  const navigationLabel = $('#navigation');
   let elapsed = 0, nextTarget = 0, steps = 0, hits = 0;
   let lastTakeoff = -1, initialized = false;
   let landedOnPage = 0, rejectedLandings = 0;
@@ -104,8 +114,9 @@
     listeners.push(() => target.removeEventListener(event, handler, options));
   }
   function resize() {
-    width = innerWidth; height = innerHeight; dpr = Math.min(devicePixelRatio || 1, 2);
+    width = innerWidth; height = innerHeight; dpr = Math.min(devicePixelRatio || 1, 1.25);
     canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
+    ghost.root.setAttribute('viewBox', `0 0 ${width} ${height}`);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!initialized) {
       body.x = clamp(body.x, 20, Math.max(20, width - 20));
@@ -131,8 +142,10 @@
     return world(Math.cos(angle) * radius, side * Math.sin(angle) * radius, heading);
   }
   function hipFor(i, pose = body) {
-    const forward = [15, 4, -4, -12][i % 4] * (1 - .12 * pose.coil);
-    const sideways = (i < 4 ? -1 : 1) * [7, 10, 10, 7][i % 4] * (1 - .08 * pose.coil);
+    // Natural legs all attach to the small cephalothorax, never the abdomen.
+    // Cyber mounts keep the broad, graphic silhouette of the digital skin.
+    const forward = (config.neon ? [15, 4, -4, -12] : [8, 4, 0, -4])[i % 4] * (1 - .12 * pose.coil);
+    const sideways = (i < 4 ? -1 : 1) * (config.neon ? [7, 10, 10, 7] : [5, 7, 7, 5])[i % 4] * (1 - .08 * pose.coil);
     return { x: pose.x + Math.cos(pose.angle) * forward - Math.sin(pose.angle) * sideways,
       y: pose.y + Math.sin(pose.angle) * forward + Math.cos(pose.angle) * sideways };
   }
@@ -162,6 +175,7 @@
     }));
   }
   function resetLegs() {
+    poseRevision++;
     legs.length = 0;
     for (let i = 0; i < 8; i++) {
       const foot = idealFoot(i);
@@ -396,7 +410,8 @@
     for (const active of effects.keys()) if (active.contains(element) || element.contains(active)) return;
     if (effects.size >= 64) release(effects.keys().next().value);
     cooldowns.set(element, elapsed + 4);
-    const color = palette[Math.floor(Math.random() * palette.length)];
+    const colors = config.neon ? cyberPalette : palette;
+    const color = colors[Math.floor(Math.random() * colors.length)];
     const force = config.strength, angle = random(-10, 10) * force;
     const dx = random(-10, 10) * force, dy = random(16, 33) * force;
     const inline = style.display === 'inline' || style.display === 'contents';
@@ -444,6 +459,7 @@
     for (const element of [...effects.keys()]) release(element);
     particles.length = 0; marks.length = 0; cooldowns = new WeakMap();
     ctx.clearRect(0, 0, width, height);
+    if (initialized && !destroyed) draw(0);
   }
   function updateLegs(dt) {
     for (let i = 0; i < 8; i++) {
@@ -554,11 +570,143 @@
     foot.joints3D = points; foot.joints = points.map(project);
     return foot.joints;
   }
+  function solvePose() {
+    if (solvedRevision === poseRevision) return;
+    for (let i = 0; i < 8; i++) solveLeg(i);
+    solvedRevision = poseRevision;
+  }
   function line(ax, ay, bx, by, color, lineWidth = 1.8) {
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.strokeStyle = color; ctx.lineWidth = lineWidth; ctx.stroke();
   }
   function joint(x, y, radius, color) {
     ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+  }
+  function createGhostRenderer() {
+    const root = $('svg.spider'), ns = 'http://www.w3.org/2000/svg';
+    const node = (tag, attributes, parent) => {
+      const element = document.createElementNS(ns, tag);
+      for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+      parent.appendChild(element); return element;
+    };
+    // Self-contained vector artwork: no fonts, textures or external URLs.
+    root.innerHTML = `<defs>
+      <radialGradient id="ghost-carapace" cx="36%" cy="30%" r="72%"><stop stop-color="#eee0b8"/><stop offset=".58" stop-color="#c9b087"/><stop offset="1" stop-color="#927756"/></radialGradient>
+      <radialGradient id="ghost-abdomen" cx="35%" cy="28%" r="76%"><stop stop-color="#e5decc"/><stop offset=".55" stop-color="#c3bba5"/><stop offset="1" stop-color="#8e8877"/></radialGradient>
+      <radialGradient id="marbled-carapace" cx="36%" cy="30%" r="72%"><stop stop-color="#e2d4bc"/><stop offset=".58" stop-color="#b49d7b"/><stop offset="1" stop-color="#79654e"/></radialGradient>
+      <radialGradient id="marbled-abdomen" cx="35%" cy="28%" r="76%"><stop stop-color="#eee9dc"/><stop offset=".55" stop-color="#b9b7a9"/><stop offset="1" stop-color="#76766c"/></radialGradient>
+      <filter id="ghost-leg-shadow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation=".7"/></filter>
+      <filter id="ghost-body-shadow" x="-70%" y="-100%" width="240%" height="300%"><feGaussianBlur stdDeviation="2.5"/></filter>
+    </defs>`;
+    const shadowLayer = node('g', { fill: 'none', stroke: '#4d4334', 'stroke-linecap': 'round' }, root);
+    const shadows = Array.from({ length: 32 }, () => node('path', {}, shadowLayer));
+    const bodyShadow = node('ellipse', { cx: -8, cy: 0, rx: 21, ry: 8.5, fill: '#453b2c', filter: 'url(#ghost-body-shadow)' }, root);
+    const limbLayer = node('g', { 'stroke-linecap': 'round' }, root);
+    const segments = Array.from({ length: 32 }, (_, index) => {
+      const group = node('g', { 'data-bone': index }, limbLayer);
+      const edge = node('path', { stroke: '#6d573b', 'stroke-opacity': .82 }, group);
+      const core = node('path', { stroke: '#c7b38a' }, group);
+      const light = node('path', { stroke: '#ecdec1', 'stroke-opacity': .7 }, group);
+      const band = node('path', { stroke: '#725339', 'stroke-opacity': .85 }, group);
+      const hairs = node('path', { stroke: '#79664c', 'stroke-width': .28, 'stroke-opacity': .52 }, group);
+      return { group, edge, core, light, band, hairs };
+    });
+    const jointLayer = node('g', { fill: '#aa8a60', stroke: '#73583d', 'stroke-width': .3 }, root);
+    const joints = Array.from({ length: 24 }, () => node('circle', {}, jointLayer));
+    const bodyGroup = node('g', { 'data-part': 'body' }, root);
+    node('path', { d: 'M-11 0 L-6 0', stroke: '#816849', 'stroke-width': 1.9, 'stroke-linecap': 'round' }, bodyGroup);
+    const abdomen = node('g', { 'data-part': 'abdomen' }, bodyGroup);
+    const abdomenBase = node('path', { d: 'M-27 0 C-27-4.5-22-6.6-15-6.1 C-7-5.7-3-3.1-3 0 C-3 3.2-7 5.9-15 6.2 C-22 6.5-27 4.2-27 0Z', fill: 'url(#ghost-abdomen)', stroke: '#817c68', 'stroke-width': .5 }, abdomen);
+    const ghostPattern = node('path', { d: 'M-24-1.5 Q-21-4-18-2.5 L-20-.5Z M-16-4 Q-12-4.5-10-2 L-13-1Z M-22 2 Q-19 .7-17 3 L-20 4Z M-14 1 Q-10 .2-7 2 L-11 4Z M-24 0 Q-22 .5-23 2Z', fill: '#786f5b', opacity: .28 }, abdomen);
+    // Dorsal folium and mottling; the species' dark ventral stripe belongs underneath.
+    const marbledPattern = node('g', { 'data-part': 'marbling', display: 'none' }, abdomen);
+    node('path', { d: 'M-25 0L-22-1.6L-23-3L-20-2.6L-18-4.7L-16-2.8L-14-4L-12-2.2L-9-2.7L-7 0L-9 2.7L-12 2.2L-14 4L-16 2.8L-18 4.7L-20 2.6L-23 3L-22 1.6Z', fill: '#554c40', opacity: .85 }, marbledPattern);
+    node('path', { d: 'M-24 0Q-16-1.5-8 0 M-20-2.7L-18-.6 M-16-2.7L-14-.6 M-20 2.7L-18 .6 M-16 2.7L-14 .6', fill: 'none', stroke: '#c6bca2', 'stroke-width': .45, opacity: .72 }, marbledPattern);
+    node('path', { d: 'M-25-1.7l1-1.1 .7 .8Z M-22-4l1.4-.5 .6 1Z M-13-5l1.2 .1-.3 1Z M-25 1.7l1 1.1 .7-.8Z M-22 4l1.4 .5 .6-1Z M-13 5l1.2-.1-.3-1Z', fill: '#75654d', opacity: .85 }, marbledPattern);
+    node('path', { d: 'M-23-3 Q-17-5-11-3.4', fill: 'none', stroke: '#f5efdd', 'stroke-width': .6, opacity: .55 }, abdomen);
+    const carapace = node('ellipse', { cx: 0, cy: 0, rx: 9.5, ry: 8.5, fill: 'url(#ghost-carapace)', stroke: '#9a805b', 'stroke-width': .5 }, bodyGroup);
+    const headPatch = node('path', { d: 'M-5 0 Q-1-1 1-4.2 L3-2.1 L6-1.4 L5 0 L6 1.4 L3 2.1 L1 4.2 Q-1 1-5 0Z', fill: '#725b44', opacity: .75 }, bodyGroup);
+    node('path', { d: 'M-3-5 Q1-7 5-4.8 M-4 5 Q0 6.4 3 5', fill: 'none', stroke: '#f3e5c7', 'stroke-width': .5, opacity: .45 }, bodyGroup);
+    const palps = node('g', { fill: 'none', stroke: '#a1845c', 'stroke-width': .85, 'stroke-linecap': 'round' }, bodyGroup);
+    node('path', { d: 'M8-3 Q12-5 14-2.5 M8 3 Q12 5 14 2.5', 'data-part': 'palps' }, palps);
+    for (const side of [-1, 1]) {
+      for (const [x, y, r] of [[7.1, 2.6, .68], [8.2, 3.15, .55], [8.25, 1.9, .52], [8.8, .65, .3]]) {
+        node('circle', { cx: x, cy: y * side, r, fill: '#332b22' }, bodyGroup);
+      }
+    }
+    const fangs = node('path', { fill: 'none', stroke: '#72583e', 'stroke-width': .7, 'stroke-linecap': 'round', 'data-part': 'mouth' }, bodyGroup);
+    return { root, limbLayer, segments, shadows, bodyShadow, joints, jointLayer, bodyGroup, abdomen, abdomenBase, ghostPattern, marbledPattern, carapace, headPatch, palps, fangs, skin: null };
+  }
+  function applyNaturalSkin() {
+    if (ghost.skin === config.appearance) return;
+    const marbled = config.appearance === 'marbled';
+    const colors = marbled
+      ? { edge: '#655039', core: '#b59a72', light: '#e2cfaa', band: '#473c30', hairs: '#6e604b' }
+      : { edge: '#6d573b', core: '#c7b38a', light: '#ecdec1', band: '#725339', hairs: '#79664c' };
+    for (const part of ghost.segments) for (const [name, color] of Object.entries(colors)) part[name].setAttribute('stroke', color);
+    ghost.jointLayer.setAttribute('fill', marbled ? '#6f5b43' : '#aa8a60');
+    ghost.jointLayer.setAttribute('stroke', marbled ? '#473c30' : '#73583d');
+    ghost.abdomenBase.setAttribute('fill', `url(#${marbled ? 'marbled' : 'ghost'}-abdomen)`);
+    ghost.abdomenBase.setAttribute('stroke', marbled ? '#696653' : '#817c68');
+    ghost.ghostPattern.setAttribute('display', marbled ? 'none' : 'inline');
+    ghost.marbledPattern.setAttribute('display', marbled ? 'inline' : 'none');
+    ghost.carapace.setAttribute('fill', `url(#${marbled ? 'marbled' : 'ghost'}-carapace)`);
+    ghost.carapace.setAttribute('stroke', marbled ? '#7f6b51' : '#9a805b');
+    ghost.headPatch.setAttribute('fill', marbled ? '#4e4233' : '#725b44');
+    ghost.palps.setAttribute('stroke', marbled ? '#927958' : '#a1845c');
+    ghost.fangs.setAttribute('stroke', marbled ? '#554532' : '#72583e');
+    ghost.root.setAttribute('data-skin', config.appearance);
+    ghost.skin = config.appearance;
+  }
+  function drawGhost() {
+    applyNaturalSkin();
+    const order = [];
+    for (let i = 0; i < 8; i++) {
+      const foot = legs[i];
+      for (let j = 0; j < 4; j++) {
+        const index = i * 4 + j, a = foot.joints[j], b = foot.joints[j + 1];
+        const a3 = foot.joints3D[j], b3 = foot.joints3D[j + 1], depth = (a3.z + b3.z) / 2;
+        const length = Math.hypot(b.x - a.x, b.y - a.y), angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+        const thickness = [1.35, 1.05, .72, .42][j] * skeleton.cameraDistance / (skeleton.cameraDistance - depth);
+        const part = ghost.segments[index], path = `M0 0H${length}`;
+        svgAttribute(part.group, 'transform', `translate(${a.x} ${a.y}) rotate(${angle})`);
+        svgAttribute(part.group, 'opacity', foot.state === 'search' ? .45 : 1);
+        for (const [element, weight] of [[part.edge, 1], [part.core, .66], [part.light, .2]]) {
+          svgAttribute(element, 'd', path); svgAttribute(element, 'stroke-width', (thickness * weight).toFixed(3));
+        }
+        const bandLength = config.appearance === 'marbled' ? [3.3, 3.8, 2.8, 1.8][j] : 1.8;
+        svgAttribute(part.band, 'd', `M${Math.max(0, length - bandLength)} 0H${length}`);
+        svgAttribute(part.band, 'stroke-width', (thickness * 1.08).toFixed(3));
+        svgAttribute(part.hairs, 'd', j === 3 ? '' : `M${length * .34} 0l-.6 -1.15 M${length * .72} 0l.45 1`);
+        svgAttribute(ghost.shadows[index], 'd', `M${a3.x + a3.z * .24} ${a3.y + a3.z * .38}L${b3.x + b3.z * .24} ${b3.y + b3.z * .38}`);
+        svgAttribute(ghost.shadows[index], 'stroke-width', (thickness * .85).toFixed(3));
+        svgAttribute(ghost.shadows[index], 'opacity', (.14 * clamp(1 - depth / 170, .15, 1)).toFixed(3));
+        order.push({ index, depth });
+      }
+      for (let j = 1; j < 4; j++) {
+        const point = foot.joints[j], circle = ghost.joints[i * 3 + j - 1];
+        svgAttribute(circle, 'cx', point.x); svgAttribute(circle, 'cy', point.y);
+        svgAttribute(circle, 'r', ([0, .9, .65, .4][j] * skeleton.cameraDistance / (skeleton.cameraDistance - foot.joints3D[j].z)).toFixed(3));
+      }
+    }
+    // Reuse nodes; only reorder when the depth ordering actually changes.
+    order.sort((a, b) => a.depth - b.depth);
+    for (let position = 0; position < order.length; position++) {
+      const node = ghost.segments[order[position].index].group;
+      if (ghost.limbLayer.children[position] !== node) ghost.limbLayer.insertBefore(node, ghost.limbLayer.children[position] || null);
+    }
+    const degrees = body.angle * 180 / Math.PI, scale = skeleton.cameraDistance / (skeleton.cameraDistance - body.z);
+    svgAttribute(ghost.bodyGroup, 'transform', `translate(${body.x} ${body.y}) rotate(${degrees}) scale(${scale})`);
+    svgAttribute(ghost.abdomen, 'transform', `translate(${-6 + 3.5 * body.coil} 0) scale(${1 - .08 * body.coil} ${1 + .04 * body.coil})`);
+    svgAttribute(ghost.bodyShadow, 'transform', `translate(${body.x + body.z * .24} ${body.y + body.z * .38}) rotate(${degrees})`);
+    svgAttribute(ghost.bodyShadow, 'opacity', (.18 * clamp(1 - body.z / 160, .25, 1)).toFixed(3));
+    const bite = hunt.stage === 'feeding' ? Math.sin(hunt.time * 30) * 1.2 : 0;
+    svgAttribute(ghost.fangs, 'd', `M9.2-1.3Q12-2.8 12 ${-1 + bite}M9.2 1.3Q12 2.8 12 ${1 - bite}`);
+  }
+  function svgAttribute(element, name, value) {
+    const text = String(value);
+    let values = svgValues.get(element);
+    if (!values) { values = new Map(); svgValues.set(element, values); }
+    if (values.get(name) !== text) { element.setAttribute(name, text); values.set(name, text); }
   }
   function draw(dt) {
     ctx.clearRect(0, 0, width, height);
@@ -589,19 +737,21 @@
       ctx.restore();
     }
     ctx.globalAlpha = 1;
-    const legColor = config.neon ? '#ff8b78' : '#33443a';
-    const jointColor = config.neon ? '#73ffbf' : '#689577';
+    const legColor = '#72eaff', jointColor = '#e8fbff';
     // Project the light rays onto the page before drawing the elevated limbs.
-    for (let i = 0; i < 8; i++) solveLeg(i);
+    solvePose();
+    ghost.root.toggleAttribute('hidden', config.neon);
+    if (!config.neon) { drawGhost(); return; }
     ctx.save();
+    ctx.globalAlpha = .23; ctx.filter = 'blur(1.5px)';
+    ctx.beginPath();
     for (const foot of legs) {
-      ctx.globalAlpha = foot.state === 'search' ? .12 : .26;
       for (let j = 0; j < skeleton.boneLengths.length; j++) {
         const a = foot.joints3D[j], b = foot.joints3D[j + 1];
-        ctx.filter = `blur(${1 + (a.z + b.z) * .018}px)`;
-        line(a.x + a.z * .24, a.y + a.z * .38, b.x + b.z * .24, b.y + b.z * .38, '#000', 3);
+        ctx.moveTo(a.x + a.z * .24, a.y + a.z * .38); ctx.lineTo(b.x + b.z * .24, b.y + b.z * .38);
       }
     }
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.stroke();
     ctx.filter = `blur(${5 + body.z * .1}px)`; ctx.globalAlpha = .28 * clamp(1 - body.z / 160, .25, 1);
     ctx.translate(body.x + body.z * .24, body.y + body.z * .38); ctx.rotate(body.angle);
     ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(-12, 0, 32, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
@@ -612,37 +762,102 @@
     for (const { foot, j, depth } of segments) {
       ctx.globalAlpha = foot.state === 'search' ? .45 : 1;
       const a = foot.joints[j], b = foot.joints[j + 1];
-      const thickness = [1.25, 1.1, .8, .55][j] * skeleton.cameraDistance / (skeleton.cameraDistance - depth);
-      line(a.x, a.y, b.x, b.y, '#101918', thickness + .8);
-      line(a.x, a.y, b.x, b.y, legColor, thickness);
+      const thickness = [1.6, 1.35, .9, .55][j] * skeleton.cameraDistance / (skeleton.cameraDistance - depth);
+      // Blue inner light and a small magenta registration offset evoke the
+      // digital/comic treatment while keeping the actual bone endpoints fixed.
+      line(a.x, a.y, b.x, b.y, '#17213d', thickness + 1.2);
+      line(a.x + .65, a.y + .45, b.x + .65, b.y + .45, '#da56efb0', thickness * .65);
+      ctx.shadowColor = '#4fdfff88'; ctx.shadowBlur = 3;
+      line(a.x, a.y, b.x, b.y, j < 2 ? legColor : '#979aff', thickness * .62);
+      ctx.shadowBlur = 0;
+      if (j < 3) {
+        line(a.x + (b.x - a.x) * .72, a.y + (b.y - a.y) * .72,
+          a.x + (b.x - a.x) * .86, a.y + (b.y - a.y) * .86, '#dafaff', thickness * .42);
+      }
     }
     for (let i = 0; i < 8; i++) {
       const foot = legs[i], points = foot.joints;
       ctx.globalAlpha = foot.state === 'search' ? .45 : 1;
-      for (let j = 1; j < 4; j++) joint(points[j].x, points[j].y,
-        [0, 1.7, 1.25, .9][j] * skeleton.cameraDistance / (skeleton.cameraDistance - foot.joints3D[j].z), jointColor);
-      joint(points[4].x, points[4].y, foot.state === 'planted' ? 1.8 : 1.2, jointColor);
+      for (let j = 1; j < 4; j++) {
+        const point = points[j], radius = [0, 2.2, 1.7, 1.1][j] * skeleton.cameraDistance / (skeleton.cameraDistance - foot.joints3D[j].z);
+        ctx.fillStyle = '#17213d'; ctx.strokeStyle = j === 1 ? '#e879ff' : '#73e9ff'; ctx.lineWidth = .7;
+        ctx.beginPath(); ctx.moveTo(point.x, point.y - radius); ctx.lineTo(point.x + radius, point.y);
+        ctx.lineTo(point.x, point.y + radius); ctx.lineTo(point.x - radius, point.y); ctx.closePath(); ctx.fill(); ctx.stroke();
+        joint(point.x, point.y, radius * .27, jointColor);
+      }
+      joint(points[4].x, points[4].y, foot.state === 'planted' ? 1.3 : .9, '#a6f3ff');
     }
     ctx.globalAlpha = 1;
     ctx.save(); ctx.translate(body.x, body.y); ctx.rotate(body.angle);
     const bodyScale = skeleton.cameraDistance / (skeleton.cameraDistance - body.z);
     ctx.scale(bodyScale, bodyScale);
-    ctx.shadowColor = '#0008'; ctx.shadowBlur = 5;
-    ctx.fillStyle = '#101918'; ctx.strokeStyle = config.neon ? '#76a0ff' : '#85b99c'; ctx.lineWidth = 1.6;
-    const abdomenX = -21 + 6 * body.coil;
-    ctx.beginPath(); ctx.ellipse(abdomenX, 0, 18 * (1 - .08 * body.coil), 8 * (1 + .06 * body.coil), 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(5, 0, 13, 10, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
-    joint(12, -3, 2, config.neon ? '#fa62da' : '#b5e1bd'); joint(12, 3, 2, config.neon ? '#fa62da' : '#b5e1bd');
+    const polygon = (points, fill, stroke, strokeWidth = 1) => {
+      ctx.beginPath(); ctx.moveTo(...points[0]); for (const point of points.slice(1)) ctx.lineTo(...point);
+      ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = strokeWidth; ctx.stroke(); }
+    };
+    // Faceted silhouette, circuit traces and printed colour offsets. All
+    // details are attached to the actual body pose; there is no random jitter.
+    ctx.save(); ctx.translate(-21 + 6 * body.coil, 0); ctx.scale(1 - .08 * body.coil, 1 + .06 * body.coil);
+    const shell = [[-19, -1], [-14, -8], [-2, -10], [12, -6], [16, 0], [10, 7], [-3, 10], [-15, 6]];
+    ctx.save(); ctx.translate(1.2, .8); polygon(shell, '#43337844', '#e75bffb0', 1); ctx.restore();
+    const shellFill = ctx.createLinearGradient(-8, -10, 8, 10);
+    shellFill.addColorStop(0, '#265a86'); shellFill.addColorStop(.48, '#242b60'); shellFill.addColorStop(1, '#552476');
+    ctx.shadowColor = '#6bcfff88'; ctx.shadowBlur = 4;
+    polygon(shell, shellFill, '#70e7ff', 1.1); ctx.shadowBlur = 0;
+    polygon([[-14, -8], [-2, -10], [12, -6], [3, -2], [-11, -3]], '#80ddff22');
+    polygon([[-15, 6], [-3, 10], [10, 7], [3, 2], [-10, 3]], '#bf5bff33');
+    for (const side of [-1, 1]) {
+      line(-13, side * 4, -6, side * 4, '#72eaff', .65);
+      line(-6, side * 4, -2, side * 1.5, '#72eaff', .65);
+      line(-2, side * 1.5, 7, side * 1.5, '#c8f8ff', .65);
+      line(1, side * 6.8, 5, side * 4.8, '#dc73ff', .7);
+      joint(-13, side * 4, .7, '#d2faff');
+    }
+    polygon([[-5, -1.8], [-2, -3.1], [1, -1.8], [1, 1.8], [-2, 3.1], [-5, 1.8]], '#b7f5ff', '#f4fdff', .4);
+    // A small, static halftone patch gives the shell a printed surface.
+    for (let x = -12; x <= -6; x += 2) for (let y = -1; y <= 2; y += 1.8) joint(x, y, .3, '#df8dff99');
+    ctx.restore();
+    const headFill = ctx.createLinearGradient(0, -10, 10, 10);
+    headFill.addColorStop(0, '#254875'); headFill.addColorStop(1, '#392351');
+    polygon([[-8, -5], [-3, -10], [10, -9], [18, -4], [19, 3], [9, 10], [-3, 9], [-8, 4]], headFill, '#839aff', 1.1);
+    line(-4, -7, 5, -7, '#74e8ff', .8); line(-4, 7, 4, 7, '#e166ff', .8);
+    polygon([[7, -5.3], [15, -3.2], [11, -1.2], [8, -2]], '#defcff', '#60dfff', .6);
+    polygon([[7, 5.3], [15, 3.2], [11, 1.2], [8, 2]], '#defcff', '#c981ff', .6);
+    line(-5, 0, 3, 0, '#81bdff', .6);
     const bite = hunt.stage === 'feeding' ? Math.sin(hunt.time * 30) * 3 : 0;
-    line(17, -4, 24, -7 + bite, legColor, 1.3); line(17, 4, 24, 7 - bite, legColor, 1.3);
-    line(abdomenX - 9, 0, abdomenX + 8, 0, '#73ffbf66', 1); ctx.restore();
+    line(17, -4, 24, -7 + bite, legColor, 1.1); line(17, 4, 24, 7 - bite, '#ce86ff', 1.1);
+    ctx.restore();
+  }
+  function paint(dt, time, force = false) {
+    paintDebt += dt;
+    if (force || time - lastPaint >= renderInterval - .1) {
+      draw(paintDebt); paintDebt = 0; lastPaint = time;
+    }
+  }
+  function updateBudget(start) {
+    averageWork = averageWork * .9 + (performance.now() - start) * .1;
+    // Keep physics independent of painting. Slow CPUs spend fewer frames
+    // updating SVG/canvas while feet and hunting retain their time-based gait.
+    if (averageWork > 5) renderInterval = 1000 / 15;
+    else if (averageWork > 1.8) renderInterval = 1000 / 20;
+    else if (averageWork < .8) renderInterval = 1000 / 30;
+  }
+  function navigationText(text) {
+    if (navigationLabel.textContent !== text) navigationLabel.textContent = text;
   }
   function tick(time) {
     frame = 0;
     if (!running || destroyed) return;
     if (!host.isConnected) { destroy(); return; }
+    if (!sleeping && lastTime && time - lastTime < 1000 / 60 - .2) { frame = requestAnimationFrame(tick); return; }
+    const workStart = performance.now();
+    // At rest there is no animation loop. Account for idle time on wake so
+    // hunting cooldowns still expire without integrating one giant step.
+    if (sleeping) { elapsed += Math.max(0, time - lastTime) / 1000; lastTime = time; sleeping = false; }
     const dt = Math.min((time - (lastTime || time)) / 1000, .04); lastTime = time;
     elapsed += dt;
+    poseRevision++;
     if (config.follow && pointer.active) {
       if (goalMode !== 'mouse' || !goalSet || Math.hypot(pointer.x - destination.x, pointer.y - destination.y) > .5) {
         destination = { x: pointer.x, y: pointer.y }; goalSet = true; goalMode = 'mouse';
@@ -656,9 +871,9 @@
     }
     if (updateHunt(dt)) {
       const labels = { gather: '准备扑跳 · 收稳支撑', crouch: '向后蜷身 · 蓄力', airborne: '向前扑向鼠标', landing: hunt.caught ? '落地 · 抓住目标' : '扑空 · 收稳', feeding: '捕食 · 前腿抓握', recover: '恢复站姿' };
-      $('#navigation').textContent = labels[hunt.stage] || '收稳站姿';
+      navigationText(labels[hunt.stage] || '收稳站姿');
       for (const [element] of effects) if (!element.isConnected) release(element);
-      draw(dt); frame = requestAnimationFrame(tick); return;
+      paint(dt, time); updateBudget(workStart); frame = requestAnimationFrame(tick); return;
     }
     const goalDistance = Math.hypot(destination.x - body.x, destination.y - body.y);
     if (goalDistance <= 15) {
@@ -712,8 +927,20 @@
     if (!poseAllowed()) { body.x = oldX; body.y = oldY; avoidanceStops++; }
     body.distance += Math.hypot(body.x - oldX, body.y - oldY); updateLegs(dt);
     for (const [element] of effects) if (!element.isConnected) release(element);
-    $('#navigation').textContent = navState === 'arrived' ? '已到达目标，停步观察' : goalMode === 'mouse' ? '朝鼠标前进' : '自由漫步';
-    draw(dt); frame = requestAnimationFrame(tick);
+    navigationText(navState === 'arrived' ? '已到达目标，停步观察' : goalMode === 'mouse' ? '朝鼠标前进' : '自由漫步');
+    const canSleep = config.follow && pointer.active && navState === 'arrived' && hunt.stage === 'idle' &&
+      elapsed - arrivedAt >= .4 / config.speed && legs.every(leg => leg.state === 'planted') && !particles.length && !marks.length;
+    paint(dt, time, canSleep); updateBudget(workStart);
+    if (canSleep) {
+      body.velocity = 0; body.angularVelocity = 0; sleeping = true;
+      if (huntReady() && !hunt.armed && hunt.lastTarget && Math.hypot(pointer.x - hunt.lastTarget.x, pointer.y - hunt.lastTarget.y) > 65 && elapsed < hunt.cooldownUntil) {
+        wakeTimer = setTimeout(wake, (hunt.cooldownUntil - elapsed) * 1000 + 10);
+      }
+    } else frame = requestAnimationFrame(tick);
+  }
+  function wake() {
+    clearTimeout(wakeTimer); wakeTimer = 0;
+    if (running && !destroyed && !frame) frame = requestAnimationFrame(tick);
   }
   function synchronize() {
     if (destroyed) return;
@@ -721,11 +948,11 @@
     const shouldRun = visible && !paused && !document.hidden;
     host.style.setProperty('display', visible ? 'block' : 'none', 'important');
     if (shouldRun && !running) {
-      running = true; lastTime = 0;
+      running = true; lastTime = 0; sleeping = false; lastPaint = -Infinity; paintDebt = 0;
       for (const { animation } of effects.values()) if (animation.playState === 'paused') animation.play();
       frame = requestAnimationFrame(tick);
     } else if (!shouldRun) {
-      running = false; cancelAnimationFrame(frame); frame = 0;
+      running = false; cancelAnimationFrame(frame); frame = 0; clearTimeout(wakeTimer); wakeTimer = 0;
       for (const { animation } of effects.values()) if (animation.playState === 'running') animation.pause();
     }
     $('#pause').textContent = paused ? '继续' : '暂停';
@@ -739,7 +966,7 @@
   function setPaused(value) { paused = value; synchronize(); }
   function destroy() {
     if (destroyed) return;
-    running = false; destroyed = true; cancelAnimationFrame(frame); restore();
+    running = false; destroyed = true; cancelAnimationFrame(frame); clearTimeout(wakeTimer); restore();
     listeners.forEach(remove => remove()); host.remove();
     document.removeEventListener('pagecrawler:command', command);
   }
@@ -747,25 +974,27 @@
   for (const key of ['speed', 'strength']) {
     $(`#${key}`).value = config[key]; $(`#${key}Value`).textContent = `${config[key].toFixed(1)}×`;
     listen($(`#${key}`), 'input', (event) => {
-      config[key] = Number(event.target.value); $(`#${key}Value`).textContent = `${config[key].toFixed(1)}×`; save();
+      config[key] = Number(event.target.value); $(`#${key}Value`).textContent = `${config[key].toFixed(1)}×`; save(); wake();
     });
   }
-  $('#mode').value = config.mode; $('#neon').checked = config.neon; $('#follow').checked = config.follow; $('#hunt').checked = config.hunt;
+  $('#mode').value = config.mode; $('#appearance').value = config.appearance; $('#follow').checked = config.follow; $('#hunt').checked = config.hunt;
   listen($('#mode'), 'change', (event) => { restore(); config.mode = event.target.value; save(); });
-  listen($('#neon'), 'change', (event) => { config.neon = event.target.checked; save(); });
-  listen($('#follow'), 'change', (event) => { config.follow = event.target.checked; goalSet = false; nextTarget = 0; save(); });
-  listen($('#hunt'), 'change', (event) => { config.hunt = event.target.checked; save(); });
+  listen($('#appearance'), 'change', (event) => { config.appearance = event.target.value; config.neon = config.appearance === 'cyber'; poseRevision++; save(); draw(0); });
+  listen($('#follow'), 'change', (event) => { config.follow = event.target.checked; goalSet = false; nextTarget = 0; save(); wake(); });
+  listen($('#hunt'), 'change', (event) => { config.hunt = event.target.checked; save(); wake(); });
   listen($('#pause'), 'click', () => setPaused(!paused)); listen($('#restore'), 'click', restore);
   listen($('#close'), 'click', toggle); listen($('#fold'), 'click', () => fold(true)); listen($('.tab'), 'click', () => fold(false));
-  listen(window, 'resize', resize, { passive: true });
+  listen(window, 'resize', () => { resize(); wake(); }, { passive: true });
   listen(window, 'pointermove', (event) => {
     if (event.pointerType === 'touch' || event.composedPath().includes(host)) return;
     pointer.x = event.clientX; pointer.y = event.clientY; pointer.active = true;
+    wake();
   }, { passive: true });
-  listen(document, 'pointerleave', () => { pointer.active = false; nextTarget = 0; });
-  listen(window, 'blur', () => { pointer.active = false; nextTarget = 0; });
+  listen(document, 'pointerleave', () => { pointer.active = false; nextTarget = 0; wake(); });
+  listen(window, 'blur', () => { pointer.active = false; nextTarget = 0; wake(); });
   function scrollCreature(dx, dy) {
     if (!dx && !dy) return;
+    poseRevision++;
     body.x -= dx; body.y -= dy; destination.x -= dx; destination.y -= dy;
     for (const point of [hunt.target, hunt.lastTarget, hunt.origin, hunt.landing, hunt.windup]) if (point) { point.x -= dx; point.y -= dy; }
     if (['landing', 'feeding', 'recover'].includes(hunt.stage)) for (const point of hunt.feet) { point.x -= dx; point.y -= dy; }
@@ -779,6 +1008,7 @@
     if (navigationPoint && navigationPoint !== destination) { navigationPoint.x -= dx; navigationPoint.y -= dy; }
     // Even while paused, the creature is carried by the page it is standing on.
     draw(0);
+    wake();
   }
   listen(window, 'wheel', (event) => {
     for (let element = event.target instanceof Element ? event.target : null; element && element !== document.body; element = element.parentElement) {
@@ -829,9 +1059,10 @@
     });
   }
   // Read-only diagnostics used by the local demo and browser checks.
-  host.crawlerStatus = () => ({ running, paused, enabled: config.enabled, excluded, steps, hits,
+  host.crawlerStatus = () => { solvePose(); return ({ running, sleeping, paused, enabled: config.enabled, excluded, steps, hits,
+    performance: { renderFps: Math.round(1000 / renderInterval), averageWorkMs: averageWork, pixelRatio: dpr },
     effects: effects.size, particles: particles.length, x: body.x, y: body.y,
-    bodyHeight: body.z, bodyCoil: body.coil, hunting: config.hunt, hunt: { stage: hunt.stage, time: hunt.time, range: hunt.range,
+    bodyHeight: body.z, bodyCoil: body.coil, appearance: config.appearance, hunting: config.hunt, hunt: { stage: hunt.stage, time: hunt.time, range: hunt.range,
       armed: hunt.armed, cooldownRemaining: Math.max(0, hunt.cooldownUntil - elapsed),
       jumps: hunt.jumps, catches: hunt.catches, misses: hunt.misses, target: hunt.target && { ...hunt.target }, caught: hunt.caught },
     worldX: body.x + scrollX, worldY: body.y + scrollY, follow: config.follow, following: config.follow && pointer.active,
@@ -845,6 +1076,6 @@
       joints3D: leg.joints3D.map(point => ({ ...point })) })),
     landings: landingHistory.map(landing => ({ ...landing })),
     finite: [body.x, body.y, body.z, body.coil, body.angle, ...legs.flatMap(leg => [leg.x, leg.y,
-      ...leg.joints.flatMap(point => [point.x, point.y]), ...leg.joints3D.flatMap(point => [point.x, point.y, point.z])])].every(Number.isFinite) });
+      ...leg.joints.flatMap(point => [point.x, point.y]), ...leg.joints3D.flatMap(point => [point.x, point.y, point.z])])].every(Number.isFinite) }); };
   resize(); synchronize();
 })();

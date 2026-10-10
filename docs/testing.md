@@ -17,7 +17,7 @@ npm test
 
 指定其他已安装的 Chromium channel 可设置 `CRAWLER_BROWSER_CHANNEL`，例如 `chrome`。配置实现见 `tests/browser.cjs`，浏览器要求见 [Playwright 官方文档](https://playwright.dev/docs/browsers)。
 
-## 七组检查
+## 九组检查
 
 | 脚本 | 检查目标 |
 | --- | --- |
@@ -28,8 +28,10 @@ npm test
 | `tests/navigation-check.cjs` | 空白页前进、反向追随、到达后停止踱步与小幅目标变动 |
 | `tests/articulation-check.cjs` | 固定 60 Hz 下弯折平面连续性、近端参与、骨长、支撑区域与半转耗时 |
 | `tests/hunt-check.cjs` | 三种速度下后移蓄力、脚尖不滑动、蜷身释放、短促腾空、空中速度、刚性骨长、支撑、捕获/扑空、重新武装、蓄力与腾空时暂停滚动及开关 |
+| `tests/appearance-check.cjs` | 三种外观切换、新旧设置恢复、自然款三维关节完全一致、复用原 SVG 节点、普通款 SVG 完整恢复、八腿连接头胸部、投影一致、深色背景、滚动及腾空跟随、切回赛博款的像素一致性 |
+| `tests/performance-check.cjs` | 三种皮肤在 CPU 降速 6 倍下的主线程预算、静止回调/SVG 写入数量、移动唤醒与前进；[条件和测量说明](performance.md) |
 
-前六组明确关闭捕食以独立检查行走；捕食由最后一组检查。碰撞回放排除身体内半径 26 的连接区域，外部腿间距小于 3 判为穿模。检查结果只覆盖这些具体场景，不能据此宣称在所有任意目标与页面上不存在穿模。
+前六组明确关闭捕食以独立检查行走；捕食由 hunt-check 检查。碰撞回放排除身体内半径 26 的连接区域，外部腿间距小于 3 判为穿模。检查结果只覆盖这些具体场景，不能据此宣称在所有任意目标与页面上不存在穿模。
 
 全部检查顺序执行。`artifacts/validation/summary.json` 保存版本、源码 SHA-256、各检查退出结果与耗时；每组另写详细 JSON。运行结果、原始录制、依赖目录和生成包均留在本地，不提交到 Git；图册中选定的当前演示照片和 MP4 是项目素材，随源码提交。
 
@@ -41,6 +43,8 @@ npm test
 npm run test:hunt
 npm run test:legs
 npm run test:collision
+npm run test:appearance
+npm run test:performance
 ```
 
 ## 再生成照片和 MP4
@@ -52,6 +56,8 @@ npm run record:walk
 
 两条命令使用实际核心脚本，正常速度录制；不会启动第二套模拟实现。原始 WebM 放在 `artifacts/capture/`，终端最后输出其绝对路径。截图放在 `artifacts/validation/`。
 
+`npm run test:appearance` 另外生成赛博款、普通款、斑腹款、深色背景和普通款腾空截图。通过 `npm run media:sync` 同步到图册素材目录。
+
 安装 ffmpeg 并加入 PATH 后，使用刚输出的路径转换：
 
 ```sh
@@ -60,7 +66,7 @@ npm run export:video -- "artifacts/capture/实际文件名.webm" walk
 npm run media:sync
 ```
 
-转换生成 H.264 / yuv420p MP4 到 `assets/videos/hunt.mp4` 或 `walk.mp4`，使用 faststart 便于网页播放。`media:sync` 将已经存在的最新验证截图复制到图册素材目录。两段视频均已在独立项目中以当前 v1.0.0 核心重新录制，行走录像关闭捕食，捕食录像开启捕食。
+转换生成 H.264 / yuv420p MP4 到 `assets/videos/hunt.mp4` 或 `walk.mp4`，使用 faststart 便于网页播放。`media:sync` 将已经存在的最新验证截图复制到图册素材目录。两段视频展示 v1.0.0 的动作，录制于 CPU 性能优化之前：行走录像关闭捕食，捕食录像开启捕食。优化后的显示频率自适应为 15–30 FPS；如需展示当前显示节奏，按上述命令重新录制。
 
 ## 打包与迁移
 

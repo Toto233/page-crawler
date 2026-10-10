@@ -50,7 +50,7 @@ const fingerprint = page => page.evaluate(() => [...document.querySelectorAll('m
       await page.getByRole('button', { name: '恢复网页', exact: true }).last().click();
       assert.equal((await status(page)).effects, 0);
       assert.deepEqual(await fingerprint(page), original, 'restore preserves attributes and hierarchy');
-      await page.getByRole('combobox').selectOption('collapse');
+      await page.getByRole('combobox', { name: '接触效果', exact: true }).selectOption('collapse');
       await page.getByRole('button', { name: '继续', exact: true }).click();
       const nextGoal = await page.locator('article p').first().evaluate(el => { const r=el.getBoundingClientRect(); return {x:r.x+25,y:r.y+r.height*.5}; });
       await page.mouse.move(nextGoal.x, nextGoal.y);

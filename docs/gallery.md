@@ -2,6 +2,20 @@
 
 浏览器入口：[gallery.html](../gallery.html)。全部本项目图片由真实浏览器截图生成，没有使用概念图代替运行效果。
 
+## 三种外观
+
+![赛博蜘蛛](../assets/images/preview-cyber.png)
+
+赛博款采用蓝紫全息风格：分块身体、冷蓝发光线路、紫红错色边缘、菱形关节与白色镜片状眼部。图形由项目绘制，保持八足蜘蛛形态。
+
+![SVG 普通幽灵蛛](../assets/images/preview-ghost.png)
+
+普通款以长腹幽灵蛛为参考，用 SVG 绘制浅黄褐色的小头胸部、灰米色长腹、深色节环与细毛。在控制面板的“蜘蛛外观”中切换。
+
+![SVG 斑腹幽灵蛛](../assets/images/preview-marbled.png)
+
+第三套参考 Holocnemus pluchei，采用灰褐色腹部、叶状深斑、褐色细腿和更醒目的深色节环。与普通款共用全部骨架和动作，切换时保留正在进行的迈步与扑跳。物种来源见 [参考资料](research.md)。
+
 ## 快速扑击 · v1.0.0
 
 ![腾空时收腿与高度阴影](../assets/images/preview-hunt-airborne.png)

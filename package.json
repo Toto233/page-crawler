@@ -12,6 +12,8 @@
     "test:hunt": "node tests/hunt-check.cjs",
     "test:legs": "node tests/articulation-check.cjs",
     "test:collision": "node tests/collision-check.cjs",
+    "test:appearance": "node tests/appearance-check.cjs",
+    "test:performance": "node tests/performance-check.cjs",
     "test:project": "node scripts/project-check.cjs",
     "browser:install": "playwright install chromium",
     "record:hunt": "node scripts/record-hunt.cjs",

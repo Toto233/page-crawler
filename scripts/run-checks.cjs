@@ -3,7 +3,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
-const suites = ['check', 'gait-check', 'collision-check', 'follow-scroll-check', 'navigation-check', 'articulation-check', 'hunt-check'];
+const suites = ['check', 'gait-check', 'collision-check', 'follow-scroll-check', 'navigation-check', 'articulation-check', 'hunt-check', 'appearance-check', 'performance-check'];
 const results = [];
 for (const suite of suites) {
   const started = Date.now(); console.log(`\n[验证] ${suite}`);

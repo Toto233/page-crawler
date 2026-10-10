@@ -18,7 +18,7 @@ const source = fs.readFileSync(process.argv[2] || path.join(projectRoot, 'page-c
       window.GM_setValue = () => {};
       window.requestAnimationFrame = callback => { pending = callback; return 1; };
       window.cancelAnimationFrame = () => { pending = null; };
-      window.advanceCrawler = () => { const callback = pending; pending = null; callback(clock += 1000 / 60); };
+      window.advanceCrawler = () => { const callback = pending; pending = null; clock += 1000 / 60; if (callback) callback(clock); };
     });
     await page.addScriptTag({ content: source });
     const result = await page.evaluate(() => {
